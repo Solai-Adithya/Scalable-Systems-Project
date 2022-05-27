@@ -11,7 +11,7 @@ manager = multiprocessing.Manager()
 # stores the list of instances that are currently working
 WORKING_INSTANCES = manager.dict()
 WORKING_WORKERS = manager.dict()
-
+lock = multiprocessing.Lock()
 
 def test_instance(instance_url):
     ''' Makes a get request to the instance url, and return True if it is working '''
@@ -35,7 +35,11 @@ def handle_instance_failure(instance_id):
     # check if it is in the working instances or not
     # If it is, there is a failure
     # If not, it has been deleted by the job_manager already, nothing to 
+    global WORKING_INSTANCES
+    global WORKING_WORKERS
+    global lock
 
+    lock.acquire()
     print("checking instance failure", instance_id)
     # print("WORKING INSTANCES", WORKING_INSTANCES)
 
@@ -48,9 +52,15 @@ def handle_instance_failure(instance_id):
         # TODO
 
     WORKING_WORKERS.pop(instance_id)
+    lock.release()
 
 
 def create_worker(instance_id):
+    global WORKING_INSTANCES
+    global WORKING_WORKERS
+    global lock
+
+
     ''' Returns True if creation of worker proxy is successfull '''
     try:
         fork_id = os.fork()
@@ -58,7 +68,10 @@ def create_worker(instance_id):
         return False
 
     if fork_id > 0:
+        lock.acquire()
         WORKING_WORKERS[instance_id] = True
+        lock.release()
+
         return True
     else:
         print("Child process and id is : ", os.getpid())
@@ -69,10 +82,14 @@ def create_worker(instance_id):
         while True:
             if not test_instance(instance_id):
                 # Worker with instance_id failed
+                lock.acquire()
                 print("WORKING INSTANCES", WORKING_INSTANCES)
                 print("WORKING WORKERS", WORKING_WORKERS)
+                lock.release()
                 break
-            sleep(3)
+            else:
+                print("Instance ", instance_id, " working properly :)")
+            sleep(5)
 
         print("Worker ", instance_id, " completed or failed")
         handle_instance_failure(instance_id)
@@ -80,12 +97,18 @@ def create_worker(instance_id):
 
 
 def create_instance_by_id(instance_id):
+    global WORKING_INSTANCES
+    global lock
+
     # Same as create instance, but is creates the instance
     # with the provided instance id
     if not create_worker(instance_id):
         return False, "Worker Creation Failed!"
 
+    lock.acquire()
     WORKING_INSTANCES[instance_id] = True
+    lock.release()
+
     print("Created instance with provided instance id", instance_id)
     return True, instance_id
 
@@ -95,25 +118,43 @@ def create_instance():
     # 2. Update WORKING_INSTANCES
     # 3. Creates a Worker
     # Returns a tuple(Success_Status, instance_id or error)
+    global WORKING_INSTANCES
+    global lock
 
     instance_id = "localhost:5001"  # TODO
     if not create_worker(instance_id):
         return False, "Worker Creation Failed!"
 
+    lock.acquire()
     WORKING_INSTANCES[instance_id] = True
+    lock.release()
+
     print("Created instance with new instance id", instance_id)
     return True, instance_id
 
 
-def delete_instance():
+def delete_instance(instance_id):
     # Will make a request to resource manager
     # 2. Update the WORKING_INSTANCES
-    # 3. Worker will be already deleted as it will throw error
-    return True
+    # 3. Worker will be already deleted as it will throw 
+    # Returns a tuple(Success_Status, instance_id or error)
+    global WORKING_INSTANCES
+    global lock
+
+    # TODO, make an API call to resource manager to delete the instance
+    lock.acquire()
+    WORKING_INSTANCES.pop(instance_id)
+    lock.release()
+
+    print("Removed instance with instance id", instance_id)
+    return True, instance_id
 
 
 @app.route('/')
 def index_page():
+    global WORKING_INSTANCES
+    global WORKING_WORKERS
+
     ''' Returns the list of working instances '''
     return jsonify(WORKING_INSTANCES=str(WORKING_INSTANCES), WORKING_WORKERS=str(WORKING_WORKERS))
 
@@ -145,12 +186,23 @@ def create_instance_api():
 
     return jsonify(success=False, error=instance_or_error)
 
+@app.route('/delete_instance')
+def delete_instance_api():
+    if "instance_id" not in request.args:
+        return jsonify(success=False, error="instance_id not provieded!")
+    instance_id = request.args["instance_id"]
+
+    # # Make a request to the resource manager to create an instance
+    success_status, instance_or_error = delete_instance(instance_id)
+    if success_status:
+        return jsonify(success=True, instance_id=instance_or_error)
+    
+    return jsonify(success=False, error=instance_or_error)
 
 @app.route('/create_worker')
 def create_worker_api():
     if "instance_id" not in request.args:
         return jsonify(success=False, error="instance_id not provieded!")
-
     instance_id = request.args["instance_id"]
     print(instance_id)
 
@@ -165,10 +217,12 @@ def test_create_instances_api():
     # Tests our logic and code by creating three instances
     # localhost: 5001, 5002, 5003, ensure they are already
     # running somewhere, and then test the failure
-    create_instance_by_id("localhost:5001")
-    create_instance_by_id("localhost:5002")
-    create_instance_by_id("localhost:5003")
-    return jsonify(success=True)
+    instances_to_create = ["localhost:5001", "localhost:5002", "localhost:5003", "localhost:5004"]
+
+    for instance_id in instances_to_create:
+        create_instance_by_id(instance_id)
+
+    return jsonify(success=True, instances_created=instances_to_create)
 
 
 if __name__ == "__main__":
