@@ -111,8 +111,6 @@ def handle_instance_failure(instance_id):
             print("Response failed may be!")
 
 
-
-
 def create_worker(instance_id):
     global WORKING_INSTANCES
     global WORKING_WORKERS
@@ -161,10 +159,10 @@ def delete_instance(instance_id):
     global WORKING_INSTANCES
     global lock
 
-    # TODO, make an API call to resource manager to delete the instance
     lock.acquire()
     WORKING_INSTANCES.pop(instance_id)
     lock.release()
+    # TODO, make an API call to resource manager to delete the instance
 
     print("Removed instance with instance id", instance_id)
     return True, instance_id
@@ -213,7 +211,7 @@ def delete_instance_api():
         return jsonify(success=False, error="instance_id not provieded!")
     instance_id = request.args["instance_id"]
 
-    # # Make a request to the resource manager to create an instance
+    # # Make a request to the resource manager to delete an instance
     success_status, instance_or_error = delete_instance(instance_id)
     if success_status:
         return jsonify(success=True, instance_id=instance_or_error)
