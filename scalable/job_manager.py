@@ -2,12 +2,15 @@ from time import sleep
 from flask import Flask, jsonify, request
 import os
 import requests
+import multiprocessing
 
 app = Flask(__name__)
 
+manager = multiprocessing.Manager()
+
 # stores the list of instances that are currently working
-WORKING_INSTANCES = set()
-WORKING_WORKERS = set()
+WORKING_INSTANCES = manager.dict()
+WORKING_WORKERS = manager.dict()
 
 
 def test_instance(instance_url):
@@ -18,8 +21,6 @@ def test_instance(instance_url):
         requests.get(instance_url)
     except requests.exceptions.InvalidSchema:
         try:
-            requests.get("https://" + str(instance_url))
-        except requests.exceptions.SSLError:
             requests.get("http://" + str(instance_url))
         except:
             return False
@@ -29,18 +30,24 @@ def test_instance(instance_url):
 
     return True
 
+
 def handle_instance_failure(instance_id):
     # check if it is in the working instances or not
     # If it is, there is a failure
-    # If not, it has been deleted by the job_manager already, nothing to do
+    # If not, it has been deleted by the job_manager already, nothing to 
+
+    print("checking instance failure", instance_id)
+    # print("WORKING INSTANCES", WORKING_INSTANCES)
 
     if instance_id not in WORKING_INSTANCES:
         print("Worker should be completed, instance already deleted")
     else:
         print("Instance with id", instance_id, " failed")
-        WORKING_INSTANCES.remove(instance_id)
+        WORKING_INSTANCES.pop(instance_id)
         print("Instane has been failed, create a new instance!")
         # TODO
+
+    WORKING_WORKERS.pop(instance_id)
 
 
 def create_worker(instance_id):
@@ -51,21 +58,36 @@ def create_worker(instance_id):
         return False
 
     if fork_id > 0:
-        WORKING_WORKERS.add(instance_id)
+        WORKING_WORKERS[instance_id] = True
         return True
     else:
         print("Child process and id is : ", os.getpid())
 
+        sleep(5) # Start checking only after 10 seconds
+        # TODO, add atleast one call before checking
         # Now we will keep making some requests
         while True:
             if not test_instance(instance_id):
                 # Worker with instance_id failed
+                print("WORKING INSTANCES", WORKING_INSTANCES)
+                print("WORKING WORKERS", WORKING_WORKERS)
                 break
             sleep(3)
 
         print("Worker ", instance_id, " completed or failed")
-        WORKING_WORKERS.remove(instance_id)
         handle_instance_failure(instance_id)
+        exit() # End the forked process here only
+
+
+def create_instance_by_id(instance_id):
+    # Same as create instance, but is creates the instance
+    # with the provided instance id
+    if not create_worker(instance_id):
+        return False, "Worker Creation Failed!"
+
+    WORKING_INSTANCES[instance_id] = True
+    print("Created instance with provided instance id", instance_id)
+    return True, instance_id
 
 
 def create_instance():
@@ -75,11 +97,11 @@ def create_instance():
     # Returns a tuple(Success_Status, instance_id or error)
 
     instance_id = "localhost:5001"  # TODO
-
-    WORKING_INSTANCES.add(instance_id)
     if not create_worker(instance_id):
         return False, "Worker Creation Failed!"
 
+    WORKING_INSTANCES[instance_id] = True
+    print("Created instance with new instance id", instance_id)
     return True, instance_id
 
 
@@ -136,6 +158,17 @@ def create_worker_api():
         return jsonify(success=True, created=True)
     else:
         return jsonify(success=False, error="Worker creation failed!")
+
+
+@app.route('/test/create_instances')
+def test_create_instances_api():
+    # Tests our logic and code by creating three instances
+    # localhost: 5001, 5002, 5003, ensure they are already
+    # running somewhere, and then test the failure
+    create_instance_by_id("localhost:5001")
+    create_instance_by_id("localhost:5002")
+    create_instance_by_id("localhost:5003")
+    return jsonify(success=True)
 
 
 if __name__ == "__main__":
