@@ -13,23 +13,96 @@ WORKING_INSTANCES = manager.dict()
 WORKING_WORKERS = manager.dict()
 lock = multiprocessing.Lock()
 
+class Worker:
+    def test_instance(self, instance_url):
+        ''' Makes a get request to the instance url, and return True if it is working '''
+        print("Testing instance url: ", instance_url)
 
-def test_instance(instance_url):
-    ''' Makes a get request to the instance url, and return True if it is working '''
-    print("Testing instance url: ", instance_url)
-
-    try:
-        requests.get(instance_url)
-    except requests.exceptions.InvalidSchema:
         try:
-            requests.get("http://" + str(instance_url))
+            requests.get(instance_url)
+        except requests.exceptions.InvalidSchema:
+            try:
+                requests.get("http://" + str(instance_url))
+            except:
+                return False
+
+        except requests.ConnectionError:
+            return False
+
+        return True
+
+    def handle_instance_failure(self, instance_id):
+        # check if it is in the working instances or not
+        # If it is, there is a failure
+        # If not, it has been deleted by the job_manager already, nothing to
+        global WORKING_INSTANCES
+        global WORKING_WORKERS
+        global lock
+
+        lock.acquire()
+        print("checking instance failure", instance_id)
+        # print("WORKING INSTANCES", WORKING_INSTANCES)
+
+        if instance_id not in WORKING_INSTANCES:
+            print("Worker should be completed, instance already deleted")
+            WORKING_WORKERS.pop(instance_id)
+            lock.release()
+        else:
+            print("Instance with id", instance_id, " failed")
+            WORKING_INSTANCES.pop(instance_id)
+            print("Instane has been failed, create a new instance!")
+
+            WORKING_WORKERS.pop(instance_id)
+            lock.release()
+
+            # Create a new instance by requesting the own server only
+            res = requests.get('http://localhost:4998/create_instance')
+            if res.ok:
+                print(res.text)
+            else:
+                print("Response failed may be!")
+
+
+    def create_worker(self, instance_id):
+        global WORKING_INSTANCES
+        global WORKING_WORKERS
+        global lock
+
+        ''' Returns True if creation of worker proxy is successfull '''
+        try:
+            fork_id = os.fork()
         except:
             return False
 
-    except requests.ConnectionError:
-        return False
+        if fork_id > 0:
+            lock.acquire()
+            WORKING_WORKERS[instance_id] = True
+            lock.release()
 
-    return True
+            return True
+        else:
+            print("Child process and id is : ", os.getpid())
+
+            sleep(5)  # Start checking only after 10 seconds
+            # TODO, add atleast one call before checking
+            # Now we will keep making some requests
+            while True:
+                if not self.test_instance(instance_id):
+                    # Worker with instance_id failed
+                    lock.acquire()
+                    print("WORKING INSTANCES", WORKING_INSTANCES)
+                    print("WORKING WORKERS", WORKING_WORKERS)
+                    lock.release()
+                    break
+                else:
+                    print("Instance ", instance_id, " working properly :)")
+                sleep(5)
+
+            print("Worker ", instance_id, " completed or failed")
+            self.handle_instance_failure(instance_id)
+            exit()  # End the forked process here only
+
+
 
 
 def create_instance_by_id(instance_id):
@@ -38,7 +111,8 @@ def create_instance_by_id(instance_id):
 
     # Same as create instance, but is creates the instance
     # with the provided instance id
-    if not create_worker(instance_id):
+    worker_object = Worker()
+    if not worker_object.create_worker(instance_id):
         return False, "Worker Creation Failed!"
 
     lock.acquire()
@@ -66,7 +140,8 @@ def create_instance():
 
         instance_id = res_data["instance_id"]
 
-        if not create_worker(instance_id):
+        worker_object = Worker()
+        if not worker_object.create_worker(instance_id):
             return False, "Worker Creation Failed!"
 
         lock.acquire()
@@ -78,77 +153,6 @@ def create_instance():
 
     return False, "Requests Error"
 
-
-def handle_instance_failure(instance_id):
-    # check if it is in the working instances or not
-    # If it is, there is a failure
-    # If not, it has been deleted by the job_manager already, nothing to
-    global WORKING_INSTANCES
-    global WORKING_WORKERS
-    global lock
-
-    lock.acquire()
-    print("checking instance failure", instance_id)
-    # print("WORKING INSTANCES", WORKING_INSTANCES)
-
-    if instance_id not in WORKING_INSTANCES:
-        print("Worker should be completed, instance already deleted")
-        WORKING_WORKERS.pop(instance_id)
-        lock.release()
-    else:
-        print("Instance with id", instance_id, " failed")
-        WORKING_INSTANCES.pop(instance_id)
-        print("Instane has been failed, create a new instance!")
-
-        WORKING_WORKERS.pop(instance_id)
-        lock.release()
-
-        # Create a new instance by requesting the own server only
-        res = requests.get('http://localhost:4998/create_instance')
-        if res.ok:
-            print(res.text)
-        else:
-            print("Response failed may be!")
-
-
-def create_worker(instance_id):
-    global WORKING_INSTANCES
-    global WORKING_WORKERS
-    global lock
-
-    ''' Returns True if creation of worker proxy is successfull '''
-    try:
-        fork_id = os.fork()
-    except:
-        return False
-
-    if fork_id > 0:
-        lock.acquire()
-        WORKING_WORKERS[instance_id] = True
-        lock.release()
-
-        return True
-    else:
-        print("Child process and id is : ", os.getpid())
-
-        sleep(5)  # Start checking only after 10 seconds
-        # TODO, add atleast one call before checking
-        # Now we will keep making some requests
-        while True:
-            if not test_instance(instance_id):
-                # Worker with instance_id failed
-                lock.acquire()
-                print("WORKING INSTANCES", WORKING_INSTANCES)
-                print("WORKING WORKERS", WORKING_WORKERS)
-                lock.release()
-                break
-            else:
-                print("Instance ", instance_id, " working properly :)")
-            sleep(5)
-
-        print("Worker ", instance_id, " completed or failed")
-        handle_instance_failure(instance_id)
-        exit()  # End the forked process here only
 
 
 def delete_instance(instance_id):
@@ -186,7 +190,8 @@ def test_instance_api():
 
     response = "Request failed to " + \
         str(instance_url) + ", Instance is not working!"
-    if test_instance(instance_url):
+    worker_object = Worker()
+    if  worker_object.test_instance(instance_url):
         response = "Successful Request " + \
             str(instance_url) + ", Instance is working!"
 
@@ -226,7 +231,8 @@ def create_worker_api():
     instance_id = request.args["instance_id"]
     print(instance_id)
 
-    if create_worker(instance_id):
+    worker_object = Worker()
+    if worker_object.create_worker(instance_id):
         return jsonify(success=True, created=True)
     else:
         return jsonify(success=False, error="Worker creation failed!")
