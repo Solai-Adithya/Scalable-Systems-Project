@@ -168,6 +168,12 @@ def delete_instance(instance_id):
     lock.release()
     # TODO, make an API call to resource manager to delete the instance
 
+    res = requests.get("http://localhost:4999/delete_instance?instance_id=" + str(instance_id))
+    if res.ok:
+        res_data = res.json()
+        print("Delete Instance from resource manager data: ", res_data)
+        print("res_Data", res_data)
+
     print("Removed instance with instance id", instance_id)
     return True, instance_id
 
