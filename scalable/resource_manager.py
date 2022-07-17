@@ -33,7 +33,8 @@ class ResourceManager(object):
 
     def create_instance(self, type):
         cloud = self.instanceFactory.getCloudObject(type)
-        success_status, instance_or_error = cloud.create_instance()
+        # success_status, instance_or_error = cloud.create_instance()
+        success_status, instance_or_error = False, "error"
         if(success_status==True):
             self.WORKING_INSTANCES.add(instance_or_error)
             self.ResetFailureCount()
@@ -56,7 +57,7 @@ def index():
 
 @app.route('/create_instance')
 def create_instance_api():
-    type = "DummyCloud"
+    type = "AWS"
     if "type" in request.args:
         type = request.args["type"]
 
@@ -71,7 +72,7 @@ def create_instance_api():
 
 @app.route('/delete_instance')
 def delete_instance_api():
-    type = "DummyCloud"
+    type = "AWS"
     if "type" in request.args:
         type = request.args["type"]
 

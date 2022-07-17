@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request
 import os
 import requests
 import multiprocessing
-
+import boto3
 app = Flask(__name__)
 
 manager = multiprocessing.Manager()
@@ -19,17 +19,31 @@ class Worker:
         print("Testing instance url: ", instance_url)
 
         try:
-            requests.get(instance_url)
-        except requests.exceptions.InvalidSchema:
-            try:
-                requests.get("http://" + str(instance_url))
-            except:
+            ec2 = boto3.resource('ec2')
+            health = ec2.Instance(instance_url)
+            print(health.state)
+            if health.state['Name'] == 'running' or health.state['Name'] == 'pending':
+                return True
+            else:
+                print("Instance failed. id: ", instance_url)
                 return False
-
-        except requests.ConnectionError:
+        except Exception as e:
+            print("Health Check Error: ", e)
             return False
 
         return True
+        # try:
+        #     requests.get(instance_url)
+        # except requests.exceptions.InvalidSchema:
+        #     try:
+        #         requests.get("http://" + str(instance_url))
+        #     except:
+        #         return False
+
+        # except requests.ConnectionError:
+        #     return False
+
+        # return True
 
     def handle_instance_failure(self, instance_id):
         # check if it is in the working instances or not
@@ -96,7 +110,7 @@ class Worker:
                     break
                 else:
                     print("Instance ", instance_id, " working properly :)")
-                sleep(5)
+                sleep(10)
 
             print("Worker ", instance_id, " completed or failed")
             self.handle_instance_failure(instance_id)
