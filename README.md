@@ -1,5 +1,5 @@
 # Design Patterns for Scalable Systems Project
-A simulation of a job submission & processing system using related design patterns that help in making the systems maintainable and more reliable.
+A simulation of a job submission & processing system using related design patterns that help in making the systems maintainable and more reliable. More details available in the [task description](https://github.com/Solai-Adithya/Scalable-Systems-Project/blob/main/ResMGMTPatternQuestion.pdf)
 
 
 ### Design patterns implemented
